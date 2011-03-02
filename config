@@ -1,0 +1,6 @@
+threadcount=10
+table=Keyspace1
+cassandra.columnfamily=Counter1
+cassandra.counters=true
+cassandra.operationretries=10
+threadcount=25
