@@ -58,6 +58,7 @@ public class CassandraClient8 extends DB
   public ConsistencyLevel consistency_read;
   public ConsistencyLevel consistency_write;
   public boolean use_counters = false;
+  public boolean timeseries = false;
 
   public static final String CONNECTION_RETRY_PROPERTY = "cassandra.connectionretries";
   public static final String CONNECTION_RETRY_PROPERTY_DEFAULT = "300";
@@ -73,6 +74,9 @@ public class CassandraClient8 extends DB
 
   public static final String COUNTERS_PROPERTY = "cassandra.counters";
   public static final String COUNTERS_PROPERTY_DEFAULT = "false";
+
+  public static final String TIMESERIES_PROPERTY = "cassandra.timeseries";
+  public static final String TIMESERIES_PROPERTY_DEFAULT = "false";
 
   public static final String CONSISTENCY_READ_PROPERTY = "cassandra.consistency_read";
   public static final String CONSISTENCY_READ_PROPERTY_DEFAULT = "1"; // ONE
@@ -100,6 +104,7 @@ public class CassandraClient8 extends DB
     consistency_read = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_READ_PROPERTY, CONSISTENCY_READ_PROPERTY_DEFAULT)));
     consistency_write = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_WRITE_PROPERTY, CONSISTENCY_WRITE_PROPERTY_DEFAULT)));
     use_counters = Boolean.parseBoolean(getProperties().getProperty(COUNTERS_PROPERTY, COUNTERS_PROPERTY_DEFAULT));
+    timeseries = Boolean.parseBoolean(getProperties().getProperty(TIMESERIES_PROPERTY, TIMESERIES_PROPERTY_DEFAULT));
 
     ConnectionRetries = Integer.parseInt(getProperties().getProperty(CONNECTION_RETRY_PROPERTY,
         CONNECTION_RETRY_PROPERTY_DEFAULT));
@@ -250,8 +255,15 @@ public class CassandraClient8 extends DB
         {
 
           SliceRange sliceRange = new SliceRange();
-          sliceRange.setStart(new byte[0]);
-          sliceRange.setFinish(new byte[0]);
+          if (timeseries)
+          {
+              sliceRange.setStart(ByteBufferUtil.bytes(new Long((System.currentTimeMillis() / 1000L) - 60)));
+              sliceRange.setFinish(ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L)));
+          } else {
+              sliceRange.setStart(new byte[0]);
+              sliceRange.setFinish(new byte[0]);
+          }
+
           sliceRange.setCount(1000000);
 
           predicate = new SlicePredicate();
@@ -486,23 +498,30 @@ public class CassandraClient8 extends DB
       {
         if (use_counters)
         {
-            Map<ByteBuffer, Map<String, List<CounterMutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<CounterMutation>>>();
-            ArrayList<CounterMutation> v = new ArrayList<CounterMutation>(values.size());
-            Map<String, List<CounterMutation>> cfMutationMap = new HashMap<String, List<CounterMutation>>();
+            Map<ByteBuffer, Map<String, List<Mutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
+            ArrayList<Mutation> v = new ArrayList<Mutation>(values.size());
+            Map<String, List<Mutation>> cfMutationMap = new HashMap<String, List<Mutation>>();
             cfMutationMap.put(column_family, v);
             batch_mutation.put(tob(key), cfMutationMap);
 
             for (String field : values.keySet()) {
-                CounterColumn col = new CounterColumn(tob(field), 1);
+                ByteBuffer value;
+                if (timeseries)
+                    value = ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L).byteValue());
+                else
+                    value = tob(field);
+
+                CounterColumn col = new CounterColumn(value, 1);
+
                 Counter counter = new Counter();
                 counter.setColumn(col);
 
-                CounterMutation m = new CounterMutation();
+                Mutation m = new Mutation();
                 m.setCounter(counter);
                 v.add(m);
             }
 
-            client.batch_add(batch_mutation, consistency_write);
+            client.batch_mutate(batch_mutation, consistency_write);
         } else
         {
             Map<ByteBuffer, Map<String, List<Mutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
