@@ -72,7 +72,7 @@ public class CassandraClient8 extends DB
   public static final String COLUMN_FAMILY_PROPERTY_DEFAULT = "data";
 
   public static final String COUNTERS_PROPERTY = "cassandra.counters";
-  public static final String COUNTERS_PROPERTY_DEFAULT = "true";
+  public static final String COUNTERS_PROPERTY_DEFAULT = "false";
 
   public static final String CONSISTENCY_READ_PROPERTY = "cassandra.consistency_read";
   public static final String CONSISTENCY_READ_PROPERTY_DEFAULT = "1"; // ONE
