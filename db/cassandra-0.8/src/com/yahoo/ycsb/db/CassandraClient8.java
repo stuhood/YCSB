@@ -46,672 +46,572 @@ import org.apache.cassandra.utils.FBUtilities;
 /**
  * Cassandra 0.8 client for YCSB framework
  */
-public class CassandraClient8 extends DB
-{
-  static Random random = new Random();
-  public static final int Ok = 0;
-  public static final int Error = -1;
+public class CassandraClient8 extends DB {
+    static Random random = new Random();
+    public static final int Ok = 0;
+    public static final int Error = -1;
 
-  public int ConnectionRetries;
-  public int OperationRetries;
-  public String column_family;
-  public ConsistencyLevel consistency_read;
-  public ConsistencyLevel consistency_write;
-  public boolean use_counters = false;
-  public boolean timeseries = false;
+    public int ConnectionRetries;
+    public int OperationRetries;
+    public String column_family;
+    public ConsistencyLevel consistency_read;
+    public ConsistencyLevel consistency_write;
+    public boolean use_counters = false;
+    public boolean timeseries = false;
 
-  public static final String CONNECTION_RETRY_PROPERTY = "cassandra.connectionretries";
-  public static final String CONNECTION_RETRY_PROPERTY_DEFAULT = "300";
+    public static final String CONNECTION_RETRY_PROPERTY = "cassandra.connectionretries";
+    public static final String CONNECTION_RETRY_PROPERTY_DEFAULT = "300";
 
-  public static final String OPERATION_RETRY_PROPERTY = "cassandra.operationretries";
-  public static final String OPERATION_RETRY_PROPERTY_DEFAULT = "300";
+    public static final String OPERATION_RETRY_PROPERTY = "cassandra.operationretries";
+    public static final String OPERATION_RETRY_PROPERTY_DEFAULT = "300";
 
-  public static final String USERNAME_PROPERTY = "cassandra.username";
-  public static final String PASSWORD_PROPERTY = "cassandra.password";
+    public static final String USERNAME_PROPERTY = "cassandra.username";
+    public static final String PASSWORD_PROPERTY = "cassandra.password";
 
-  public static final String COLUMN_FAMILY_PROPERTY = "cassandra.columnfamily";
-  public static final String COLUMN_FAMILY_PROPERTY_DEFAULT = "data";
+    public static final String COLUMN_FAMILY_PROPERTY = "cassandra.columnfamily";
+    public static final String COLUMN_FAMILY_PROPERTY_DEFAULT = "data";
 
-  public static final String COUNTERS_PROPERTY = "cassandra.counters";
-  public static final String COUNTERS_PROPERTY_DEFAULT = "false";
+    public static final String COUNTERS_PROPERTY = "cassandra.counters";
+    public static final String COUNTERS_PROPERTY_DEFAULT = "false";
 
-  public static final String TIMESERIES_PROPERTY = "cassandra.timeseries";
-  public static final String TIMESERIES_PROPERTY_DEFAULT = "false";
+    public static final String TIMESERIES_PROPERTY = "cassandra.timeseries";
+    public static final String TIMESERIES_PROPERTY_DEFAULT = "false";
 
-  public static final String CONSISTENCY_READ_PROPERTY = "cassandra.consistency_read";
-  public static final String CONSISTENCY_READ_PROPERTY_DEFAULT = "1"; // ONE
-  public static final String CONSISTENCY_WRITE_PROPERTY = "cassandra.consistency_write";
-  public static final String CONSISTENCY_WRITE_PROPERTY_DEFAULT = "1"; // ONE
+    public static final String CONSISTENCY_READ_PROPERTY = "cassandra.consistency_read";
+    public static final String CONSISTENCY_READ_PROPERTY_DEFAULT = "1"; // ONE
+    public static final String CONSISTENCY_WRITE_PROPERTY = "cassandra.consistency_write";
+    public static final String CONSISTENCY_WRITE_PROPERTY_DEFAULT = "1"; // ONE
 
-  TTransport tr;
-  Cassandra.Client client;
+    TTransport tr;
+    Cassandra.Client client;
 
-  boolean _debug = false;
+    boolean _debug = false;
 
-  /**
-   * Initialize any state for this DB. Called once per DB instance; there is one
-   * DB instance per client thread.
-   */
-  public void init() throws DBException
-  {
-    String hosts = getProperties().getProperty("hosts");
-    if (hosts == null)
-    {
-      throw new DBException("Required property \"hosts\" missing for CassandraClient");
-    }
-
-    column_family = getProperties().getProperty(COLUMN_FAMILY_PROPERTY, COLUMN_FAMILY_PROPERTY_DEFAULT);
-    consistency_read = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_READ_PROPERTY, CONSISTENCY_READ_PROPERTY_DEFAULT)));
-    consistency_write = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_WRITE_PROPERTY, CONSISTENCY_WRITE_PROPERTY_DEFAULT)));
-    use_counters = Boolean.parseBoolean(getProperties().getProperty(COUNTERS_PROPERTY, COUNTERS_PROPERTY_DEFAULT));
-    timeseries = Boolean.parseBoolean(getProperties().getProperty(TIMESERIES_PROPERTY, TIMESERIES_PROPERTY_DEFAULT));
-
-    ConnectionRetries = Integer.parseInt(getProperties().getProperty(CONNECTION_RETRY_PROPERTY,
-        CONNECTION_RETRY_PROPERTY_DEFAULT));
-    OperationRetries = Integer.parseInt(getProperties().getProperty(OPERATION_RETRY_PROPERTY,
-        OPERATION_RETRY_PROPERTY_DEFAULT));
-
-    String username = getProperties().getProperty(USERNAME_PROPERTY);
-    String password = getProperties().getProperty(PASSWORD_PROPERTY);
-
-    _debug = Boolean.parseBoolean(getProperties().getProperty("debug", "false"));
-
-    String[] allhosts = hosts.split(",");
-    String myhost = allhosts[random.nextInt(allhosts.length)];
-
-    Exception connectexception = null;
-
-    for (int retry = 0; retry < ConnectionRetries; retry++)
-    {
-      tr = new TFramedTransport(new TSocket(myhost, 9160));
-      TProtocol proto = new TBinaryProtocol(tr);
-      client = new Cassandra.Client(proto);
-      try
-      {
-        tr.open();
-        connectexception = null;
-        break;
-      } catch (Exception e)
-      {
-        connectexception = e;
-      }
-      try
-      {
-        Thread.sleep(1000);
-      } catch (InterruptedException e)
-      {
-      }
-    }
-    if (connectexception != null)
-    {
-      System.err.println("Unable to connect to " + myhost + " after " + ConnectionRetries
-          + " tries");
-      System.out.println("Unable to connect to " + myhost + " after " + ConnectionRetries
-          + " tries");
-      throw new DBException(connectexception);
-    }
-
-    if (username != null && password != null)
-    {
-        Map<String,String> cred = new HashMap<String,String>();
-        cred.put("username", username);
-        cred.put("password", password);
-        AuthenticationRequest req = new AuthenticationRequest(cred);
-        try
-        {
-            client.login(req);
-        }
-        catch (Exception e)
-        {
-            throw new DBException(e);
-        }
-    }
-  }
-
-  /**
-   * Cleanup any state for this DB. Called once per DB instance; there is one DB
-   * instance per client thread.
-   */
-  public void cleanup() throws DBException
-  {
-    tr.close();
-  }
-
-  private ByteBuffer tob(String str)
-  {
-    try
-    {
-      return ByteBuffer.wrap(str.getBytes("UTF-8"));
-    }
-    catch (UnsupportedEncodingException e)
-    {
-      throw new AssertionError(e);
-    }
-  }
-
-  /** TODO: Next two methods copied from ByteBufferUtil in Cassandra trunk. */
-  public static String tos(ByteBuffer buffer)
-  {
-    int offset = buffer.position();
-    int length = buffer.remaining();
-    Charset charset = Charset.defaultCharset();
-    if (buffer.hasArray())
-      return new String(buffer.array(), buffer.arrayOffset() + offset, length + buffer.arrayOffset(), charset);
-
-    byte[] buff = getArray(buffer, offset, length);
-    return new String(buff, charset);
-  }
-
-  public static byte[] getArray(ByteBuffer b, int start, int length)
-  {
-    if (b.hasArray())
-      return Arrays.copyOfRange(b.array(), start + b.arrayOffset(), start + length + b.arrayOffset());
-
-    byte[] bytes = new byte[length];
-
-    for (int i = 0; i < length; i++)
-    {
-      bytes[i] = b.get(start++);
-    }
-
-    return bytes;
-  }
-
-  /**
-   * Read a record from the database. Each field/value pair from the result will
-   * be stored in a HashMap.
-   *
-   * @param table
-   *          The name of the table
-   * @param key
-   *          The record key of the record to read.
-   * @param fields
-   *          The list of fields to read, or null for all of them
-   * @param result
-   *          A HashMap of field/value pairs for the result
-   * @return Zero on success, a non-zero error code on error
-   */
-  public int read(String table, String key, Set<String> fields, HashMap<String, String> result)
-  {
-    Exception errorexception = null;
-    try
-    {
-      client.set_keyspace(table);
-    } catch (Exception e)
-    {
-      e.printStackTrace();
-      e.printStackTrace(System.out);
-      return Error;
-    }
-
-    for (int i = 0; i < OperationRetries; i++)
-    {
-
-      try
-      {
-
-        SlicePredicate predicate;
-        if (fields == null)
-        {
-
-          SliceRange sliceRange = new SliceRange();
-          if (timeseries)
-          {
-              sliceRange.setStart(ByteBufferUtil.bytes(new Long((System.currentTimeMillis() / 1000L) - 60)));
-              sliceRange.setFinish(ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L)));
-          } else {
-              sliceRange.setStart(new byte[0]);
-              sliceRange.setFinish(new byte[0]);
-          }
-
-          sliceRange.setCount(1000000);
-
-          predicate = new SlicePredicate();
-          predicate.setSlice_range(sliceRange);
-        } else
-        {
-          ArrayList<ByteBuffer> fieldlist = new ArrayList<ByteBuffer>(fields.size());
-          for (String s : fields)
-          {
-            fieldlist.add(tob(s));
-          }
-
-          predicate = new SlicePredicate();
-          predicate.setColumn_names(fieldlist);
+    /**
+     * Initialize any state for this DB. Called once per DB instance; there is one
+     * DB instance per client thread.
+     */
+    public void init() throws DBException {
+        String hosts = getProperties().getProperty("hosts");
+        if (hosts == null) {
+            throw new DBException("Required property \"hosts\" missing for CassandraClient");
         }
 
-        ColumnParent parent = new ColumnParent(column_family);
+        column_family = getProperties().getProperty(COLUMN_FAMILY_PROPERTY, COLUMN_FAMILY_PROPERTY_DEFAULT);
+        consistency_read = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_READ_PROPERTY, CONSISTENCY_READ_PROPERTY_DEFAULT)));
+        consistency_write = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_WRITE_PROPERTY, CONSISTENCY_WRITE_PROPERTY_DEFAULT)));
+        use_counters = Boolean.parseBoolean(getProperties().getProperty(COUNTERS_PROPERTY, COUNTERS_PROPERTY_DEFAULT));
+        timeseries = Boolean.parseBoolean(getProperties().getProperty(TIMESERIES_PROPERTY, TIMESERIES_PROPERTY_DEFAULT));
 
-        if (_debug)
-        {
-          System.out.print("READ: ");
+        ConnectionRetries = Integer.parseInt(getProperties().getProperty(CONNECTION_RETRY_PROPERTY,
+                CONNECTION_RETRY_PROPERTY_DEFAULT));
+        OperationRetries = Integer.parseInt(getProperties().getProperty(OPERATION_RETRY_PROPERTY,
+                OPERATION_RETRY_PROPERTY_DEFAULT));
+
+        String username = getProperties().getProperty(USERNAME_PROPERTY);
+        String password = getProperties().getProperty(PASSWORD_PROPERTY);
+
+        _debug = Boolean.parseBoolean(getProperties().getProperty("debug", "false"));
+
+        String[] allhosts = hosts.split(",");
+        String myhost = allhosts[random.nextInt(allhosts.length)];
+
+        Exception connectexception = null;
+
+        for (int retry = 0; retry < ConnectionRetries; retry++) {
+            tr = new TFramedTransport(new TSocket(myhost, 9160));
+            TProtocol proto = new TBinaryProtocol(tr);
+            client = new Cassandra.Client(proto);
+            try {
+                tr.open();
+                connectexception = null;
+                break;
+            } catch (Exception e) {
+                connectexception = e;
+            }
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+            }
+        }
+        if (connectexception != null) {
+            System.err.println("Unable to connect to " + myhost + " after " + ConnectionRetries
+                    + " tries");
+            System.out.println("Unable to connect to " + myhost + " after " + ConnectionRetries
+                    + " tries");
+            throw new DBException(connectexception);
         }
 
-        if (use_counters)
-        {
-            List<Counter> results = client.get_counter_slice(tob(key), parent, predicate,
-                    consistency_read);
-            for (Counter oneresult : results) {
-                CounterColumn column = oneresult.column;
-                result.put(tos(column.name), Long.toString(column.value));
+        if (username != null && password != null) {
+            Map<String, String> cred = new HashMap<String, String>();
+            cred.put("username", username);
+            cred.put("password", password);
+            AuthenticationRequest req = new AuthenticationRequest(cred);
+            try {
+                client.login(req);
+            } catch (Exception e) {
+                throw new DBException(e);
+            }
+        }
+    }
+
+    /**
+     * Cleanup any state for this DB. Called once per DB instance; there is one DB
+     * instance per client thread.
+     */
+    public void cleanup() throws DBException {
+        tr.close();
+    }
+
+    private ByteBuffer tob(String str) {
+        try {
+            return ByteBuffer.wrap(str.getBytes("UTF-8"));
+        } catch (UnsupportedEncodingException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    /**
+     * TODO: Next two methods copied from ByteBufferUtil in Cassandra trunk.
+     */
+    public static String tos(ByteBuffer buffer) {
+        int offset = buffer.position();
+        int length = buffer.remaining();
+        Charset charset = Charset.defaultCharset();
+        if (buffer.hasArray())
+            return new String(buffer.array(), buffer.arrayOffset() + offset, length + buffer.arrayOffset(), charset);
+
+        byte[] buff = getArray(buffer, offset, length);
+        return new String(buff, charset);
+    }
+
+    public static byte[] getArray(ByteBuffer b, int start, int length) {
+        if (b.hasArray())
+            return Arrays.copyOfRange(b.array(), start + b.arrayOffset(), start + length + b.arrayOffset());
+
+        byte[] bytes = new byte[length];
+
+        for (int i = 0; i < length; i++) {
+            bytes[i] = b.get(start++);
+        }
+
+        return bytes;
+    }
+
+    /**
+     * Read a record from the database. Each field/value pair from the result will
+     * be stored in a HashMap.
+     *
+     * @param table  The name of the table
+     * @param key    The record key of the record to read.
+     * @param fields The list of fields to read, or null for all of them
+     * @param result A HashMap of field/value pairs for the result
+     * @return Zero on success, a non-zero error code on error
+     */
+    public int read(String table, String key, Set<String> fields, HashMap<String, String> result) {
+        Exception errorexception = null;
+        try {
+            client.set_keyspace(table);
+        } catch (Exception e) {
+            e.printStackTrace();
+            e.printStackTrace(System.out);
+            return Error;
+        }
+
+        for (int i = 0; i < OperationRetries; i++) {
+
+            try {
+
+                SlicePredicate predicate;
+                if (fields == null) {
+
+                    SliceRange sliceRange = new SliceRange();
+                    if (timeseries) {
+                        sliceRange.setStart(ByteBufferUtil.bytes(new Long((System.currentTimeMillis() / 1000L) - 60)));
+                        sliceRange.setFinish(ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L)));
+                    } else {
+                        sliceRange.setStart(new byte[0]);
+                        sliceRange.setFinish(new byte[0]);
+                    }
+
+                    sliceRange.setCount(1000000);
+
+                    predicate = new SlicePredicate();
+                    predicate.setSlice_range(sliceRange);
+                } else {
+                    ArrayList<ByteBuffer> fieldlist = new ArrayList<ByteBuffer>(fields.size());
+                    for (String s : fields) {
+                        fieldlist.add(tob(s));
+                    }
+
+                    predicate = new SlicePredicate();
+                    predicate.setColumn_names(fieldlist);
+                }
+
+                ColumnParent parent = new ColumnParent(column_family);
 
                 if (_debug) {
-                    System.out.print("(" + tos(column.name) + "=" + Long.toString(column.value) + ")");
+                    System.out.print("READ: ");
                 }
-            }
-        } else
-        {
-            List<ColumnOrSuperColumn> results = client.get_slice(tob(key), parent, predicate,
-                    consistency_read);
 
-            for (ColumnOrSuperColumn oneresult : results) {
-                Column column = oneresult.column;
-                result.put(tos(column.name), tos(column.value));
+                List<ColumnOrSuperColumn> results = client.get_slice(tob(key), parent, predicate,
+                        consistency_read);
+
+                for (ColumnOrSuperColumn oneresult : results) {
+                    if (use_counters) {
+                        CounterColumn column = oneresult.counter_column;
+                        result.put(tos(column.name), Long.toString(column.value));
+                        if (_debug) {
+                            System.out.print("(" + tos(column.name) + "=" + (column.value) + ")");
+                        }
+                    } else {
+                        Column column = oneresult.column;
+                        result.put(tos(column.name), tos(column.value));
+                        if (_debug) {
+                            System.out.print("(" + tos(column.name) + "=" + tos(column.value) + ")");
+                        }
+                    }
+
+                }
 
                 if (_debug) {
-                    System.out.print("(" + tos(column.name) + "=" + tos(column.value) + ")");
+                    System.out.println("");
                 }
+
+                return Ok;
+            } catch (Exception e) {
+                errorexception = e;
+            }
+
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+            }
+        }
+        errorexception.printStackTrace();
+        errorexception.printStackTrace(System.out);
+        return Error;
+
+    }
+
+    /**
+     * Perform a range scan for a set of records in the database. Each field/value
+     * pair from the result will be stored in a HashMap.
+     *
+     * @param table       The name of the table
+     * @param startkey    The record key of the first record to read.
+     * @param recordcount The number of records to read
+     * @param fields      The list of fields to read, or null for all of them
+     * @param result      A Vector of HashMaps, where each HashMap is a set field/value
+     *                    pairs for one record
+     * @return Zero on success, a non-zero error code on error
+     */
+    public int scan(String table, String startkey, int recordcount, Set<String> fields,
+                    Vector<HashMap<String, String>> result) {
+        Exception errorexception = null;
+
+        try {
+            client.set_keyspace(table);
+        } catch (Exception e) {
+            e.printStackTrace();
+            e.printStackTrace(System.out);
+            return Error;
+        }
+
+        for (int i = 0; i < OperationRetries; i++) {
+
+            try {
+                SlicePredicate predicate;
+                if (fields == null) {
+                    SliceRange sliceRange = new SliceRange();
+                    sliceRange.setStart(new byte[0]);
+                    sliceRange.setFinish(new byte[0]);
+                    sliceRange.setCount(1000000);
+                    predicate = new SlicePredicate();
+                    predicate.setSlice_range(sliceRange);
+                } else {
+                    ArrayList<ByteBuffer> fieldlist = new ArrayList<ByteBuffer>(fields.size());
+                    for (String s : fields) {
+                        fieldlist.add(tob(s));
+                    }
+                    predicate = new SlicePredicate();
+                    predicate.setColumn_names(fieldlist);
+                }
+                ColumnParent parent = new ColumnParent(column_family);
+                KeyRange kr = new KeyRange().setStart_key(tob(startkey)).setEnd_key(ByteBufferUtil.EMPTY_BYTE_BUFFER).setCount(recordcount);
+
+                List<KeySlice> results = client.get_range_slices(parent, predicate, kr, consistency_read);
+
+                if (_debug) {
+                    System.out.println("SCAN:");
+                }
+
+                for (KeySlice oneresult : results) {
+                    HashMap<String, String> tuple = new HashMap<String, String>();
+
+                    for (ColumnOrSuperColumn onecol : oneresult.columns) {
+                        Column column = onecol.column;
+                        tuple.put(tos(column.name), tos(column.value));
+
+                        if (_debug) {
+                            System.out
+                                    .print("(" + tos(column.name) + "=" + tos(column.value) + ")");
+                        }
+                    }
+
+                    result.add(tuple);
+                    if (_debug) {
+                        System.out.println();
+                    }
+                }
+
+                return Ok;
+            } catch (Exception e) {
+                errorexception = e;
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+            }
+        }
+        errorexception.printStackTrace();
+        errorexception.printStackTrace(System.out);
+        return Error;
+    }
+
+    /**
+     * Update a record in the database. Any field/value pairs in the specified
+     * values HashMap will be written into the record with the specified record
+     * key, overwriting any existing values with the same field name.
+     *
+     * @param table  The name of the table
+     * @param key    The record key of the record to write.
+     * @param values A HashMap of field/value pairs to update in the record
+     * @return Zero on success, a non-zero error code on error
+     */
+    public int update(String table, String key, HashMap<String, String> values) {
+        return insert(table, key, values);
+    }
+
+    /**
+     * Insert a record in the database. Any field/value pairs in the specified
+     * values HashMap will be written into the record with the specified record
+     * key.
+     *
+     * @param table  The name of the table
+     * @param key    The record key of the record to insert.
+     * @param values A HashMap of field/value pairs to insert in the record
+     * @return Zero on success, a non-zero error code on error
+     */
+    public int insert(String table, String key, HashMap<String, String> values) {
+        Exception errorexception = null;
+
+        try {
+            client.set_keyspace(table);
+        } catch (Exception e) {
+            e.printStackTrace();
+            e.printStackTrace(System.out);
+            return Error;
+        }
+
+        for (int i = 0; i < OperationRetries; i++) {
+            // insert data
+            long timestamp = System.currentTimeMillis();
+
+            try {
+                if (use_counters) {
+                    Map<ByteBuffer, Map<String, List<Mutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
+                    ArrayList<Mutation> v = new ArrayList<Mutation>(values.size());
+                    Map<String, List<Mutation>> cfMutationMap = new HashMap<String, List<Mutation>>();
+                    cfMutationMap.put(column_family, v);
+                    batch_mutation.put(tob(key), cfMutationMap);
+
+                    for (String field : values.keySet()) {
+                        ByteBuffer value;
+                        if (timeseries)
+                            value = ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L));
+                        else
+                            value = tob(field);
+
+                        CounterColumn col = new CounterColumn(value, 1);
+
+                        ColumnOrSuperColumn colorsc = new ColumnOrSuperColumn();
+                        colorsc.setCounter_column(col);
+
+                        Mutation m = new Mutation();
+                        m.setColumn_or_supercolumn(colorsc);
+                        v.add(m);
+                    }
+
+                    client.batch_mutate(batch_mutation, consistency_write);
+                } else {
+                    Map<ByteBuffer, Map<String, List<Mutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
+                    ArrayList<Mutation> v = new ArrayList<Mutation>(values.size());
+                    Map<String, List<Mutation>> cfMutationMap = new HashMap<String, List<Mutation>>();
+                    cfMutationMap.put(column_family, v);
+                    batch_mutation.put(tob(key), cfMutationMap);
+
+                    for (String field : values.keySet()) {
+                        String val = values.get(field);
+                        Column col = new Column(tob(field), tob(val), timestamp);
+
+                        ColumnOrSuperColumn c = new ColumnOrSuperColumn();
+                        c.setColumn(col);
+                        c.unsetSuper_column();
+                        Mutation m = new Mutation();
+                        m.setColumn_or_supercolumn(c);
+                        v.add(m);
+                    }
+
+                    client.batch_mutate(batch_mutation, consistency_write);
+                }
+
+                if (_debug) {
+                    System.out.println("INSERT");
+                }
+
+                return Ok;
+            } catch (Exception e) {
+                errorexception = e;
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
             }
         }
 
-        if (_debug)
-        {
-          System.out.println("");
-        }
-
-        return Ok;
-      } catch (Exception e)
-      {
-        errorexception = e;
-      }
-
-      try
-      {
-        Thread.sleep(500);
-      } catch (InterruptedException e)
-      {
-      }
-    }
-    errorexception.printStackTrace();
-    errorexception.printStackTrace(System.out);
-    return Error;
-
-  }
-
-  /**
-   * Perform a range scan for a set of records in the database. Each field/value
-   * pair from the result will be stored in a HashMap.
-   *
-   * @param table
-   *          The name of the table
-   * @param startkey
-   *          The record key of the first record to read.
-   * @param recordcount
-   *          The number of records to read
-   * @param fields
-   *          The list of fields to read, or null for all of them
-   * @param result
-   *          A Vector of HashMaps, where each HashMap is a set field/value
-   *          pairs for one record
-   * @return Zero on success, a non-zero error code on error
-   */
-  public int scan(String table, String startkey, int recordcount, Set<String> fields,
-      Vector<HashMap<String, String>> result)
-  {
-    Exception errorexception = null;
-
-    try
-    {
-      client.set_keyspace(table);
-    } catch (Exception e)
-    {
-      e.printStackTrace();
-      e.printStackTrace(System.out);
-      return Error;
+        errorexception.printStackTrace();
+        errorexception.printStackTrace(System.out);
+        return Error;
     }
 
-    for (int i = 0; i < OperationRetries; i++)
-    {
+    /**
+     * Delete a record from the database.
+     *
+     * @param table The name of the table
+     * @param key   The record key of the record to delete.
+     * @return Zero on success, a non-zero error code on error
+     */
+    public int delete(String table, String key) {
+        Exception errorexception = null;
 
-      try
-      {
-        SlicePredicate predicate;
-        if (fields == null)
-        {
-          SliceRange sliceRange = new SliceRange();
-          sliceRange.setStart(new byte[0]);
-          sliceRange.setFinish(new byte[0]);
-          sliceRange.setCount(1000000);
-          predicate = new SlicePredicate();
-          predicate.setSlice_range(sliceRange);
-        } else
-        {
-          ArrayList<ByteBuffer> fieldlist = new ArrayList<ByteBuffer>(fields.size());
-          for (String s : fields)
-          {
-            fieldlist.add(tob(s));
-          }
-          predicate = new SlicePredicate();
-          predicate.setColumn_names(fieldlist);
-        }
-        ColumnParent parent = new ColumnParent(column_family);
-        KeyRange kr = new KeyRange().setStart_key(tob(startkey)).setEnd_key(ByteBufferUtil.EMPTY_BYTE_BUFFER).setCount(recordcount);
-
-        List<KeySlice> results = client.get_range_slices(parent, predicate, kr, consistency_read);
-
-        if (_debug)
-        {
-          System.out.println("SCAN:");
+        try {
+            client.set_keyspace(table);
+        } catch (Exception e) {
+            e.printStackTrace();
+            e.printStackTrace(System.out);
+            return Error;
         }
 
-        for (KeySlice oneresult : results)
-        {
-          HashMap<String, String> tuple = new HashMap<String, String>();
+        for (int i = 0; i < OperationRetries; i++) {
+            try {
+                if (use_counters) {
+                    client.remove_counter(tob(key), new ColumnPath(column_family), consistency_write);
 
-          for (ColumnOrSuperColumn onecol : oneresult.columns)
-          {
-            Column column = onecol.column;
-            tuple.put(tos(column.name), tos(column.value));
+                } else {
+                    client.remove(tob(key), new ColumnPath(column_family), System.currentTimeMillis(),
+                            consistency_write);
+                }
 
-            if (_debug)
-            {
-              System.out
-                  .print("(" + tos(column.name) + "=" + tos(column.value) + ")");
+                if (_debug) {
+                    System.out.println("DELETE");
+                }
+
+                return Ok;
+            } catch (Exception e) {
+                errorexception = e;
             }
-          }
-
-          result.add(tuple);
-          if (_debug)
-          {
-            System.out.println();
-          }
-        }
-
-        return Ok;
-      } catch (Exception e)
-      {
-        errorexception = e;
-      }
-      try
-      {
-        Thread.sleep(500);
-      } catch (InterruptedException e)
-      {
-      }
-    }
-    errorexception.printStackTrace();
-    errorexception.printStackTrace(System.out);
-    return Error;
-  }
-
-  /**
-   * Update a record in the database. Any field/value pairs in the specified
-   * values HashMap will be written into the record with the specified record
-   * key, overwriting any existing values with the same field name.
-   *
-   * @param table
-   *          The name of the table
-   * @param key
-   *          The record key of the record to write.
-   * @param values
-   *          A HashMap of field/value pairs to update in the record
-   * @return Zero on success, a non-zero error code on error
-   */
-  public int update(String table, String key, HashMap<String, String> values)
-  {
-    return insert(table, key, values);
-  }
-
-  /**
-   * Insert a record in the database. Any field/value pairs in the specified
-   * values HashMap will be written into the record with the specified record
-   * key.
-   *
-   * @param table
-   *          The name of the table
-   * @param key
-   *          The record key of the record to insert.
-   * @param values
-   *          A HashMap of field/value pairs to insert in the record
-   * @return Zero on success, a non-zero error code on error
-   */
-  public int insert(String table, String key, HashMap<String, String> values)
-  {
-    Exception errorexception = null;
-
-    try
-    {
-      client.set_keyspace(table);
-    } catch (Exception e)
-    {
-      e.printStackTrace();
-      e.printStackTrace(System.out);
-      return Error;
-    }
-
-    for (int i = 0; i < OperationRetries; i++)
-    {
-      // insert data
-      long timestamp = System.currentTimeMillis();
-
-      try
-      {
-        if (use_counters)
-        {
-            Map<ByteBuffer, Map<String, List<Mutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
-            ArrayList<Mutation> v = new ArrayList<Mutation>(values.size());
-            Map<String, List<Mutation>> cfMutationMap = new HashMap<String, List<Mutation>>();
-            cfMutationMap.put(column_family, v);
-            batch_mutation.put(tob(key), cfMutationMap);
-
-            for (String field : values.keySet()) {
-                ByteBuffer value;
-                if (timeseries)
-                    value = ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L));
-                else
-                    value = tob(field);
-
-                CounterColumn col = new CounterColumn(value, 1);
-
-                Counter counter = new Counter();
-                counter.setColumn(col);
-
-                Mutation m = new Mutation();
-                m.setCounter(counter);
-                v.add(m);
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
             }
+        }
+        errorexception.printStackTrace();
+        errorexception.printStackTrace(System.out);
+        return Error;
+    }
 
-            client.batch_mutate(batch_mutation, consistency_write);
-        } else
-        {
-            Map<ByteBuffer, Map<String, List<Mutation>>> batch_mutation = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
-            ArrayList<Mutation> v = new ArrayList<Mutation>(values.size());
-            Map<String, List<Mutation>> cfMutationMap = new HashMap<String, List<Mutation>>();
-            cfMutationMap.put(column_family, v);
-            batch_mutation.put(tob(key), cfMutationMap);
+    public static void main(String[] args) {
+        CassandraClient8 cli = new CassandraClient8();
 
-            for (String field : values.keySet()) {
-                String val = values.get(field);
-                Column col = new Column(tob(field), tob(val), timestamp);
+        Properties props = new Properties();
 
-                ColumnOrSuperColumn c = new ColumnOrSuperColumn();
-                c.setColumn(col);
-                c.unsetSuper_column();
-                Mutation m = new Mutation();
-                m.setColumn_or_supercolumn(c);
-                v.add(m);
-            }
+        props.setProperty("hosts", args[0]);
+        cli.setProperties(props);
 
-            client.batch_mutate(batch_mutation, consistency_write);
+        try {
+            cli.init();
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(0);
         }
 
-        if (_debug)
-        {
-          System.out.println("INSERT");
+        HashMap<String, String> vals = new HashMap<String, String>();
+        vals.put("age", "57");
+        vals.put("middlename", "bradley");
+        vals.put("favoritecolor", "blue");
+        int res = cli.insert("usertable", "BrianFrankCooper", vals);
+        System.out.println("Result of insert: " + res);
+
+        HashMap<String, String> result = new HashMap<String, String>();
+        HashSet<String> fields = new HashSet<String>();
+        fields.add("middlename");
+        fields.add("age");
+        fields.add("favoritecolor");
+        res = cli.read("usertable", "BrianFrankCooper", null, result);
+        System.out.println("Result of read: " + res);
+        for (String s : result.keySet()) {
+            System.out.println("[" + s + "]=[" + result.get(s) + "]");
         }
 
-        return Ok;
-      } catch (Exception e)
-      {
-        errorexception = e;
-      }
-      try
-      {
-        Thread.sleep(500);
-      } catch (InterruptedException e)
-      {
-      }
+        res = cli.delete("usertable", "BrianFrankCooper");
+        System.out.println("Result of delete: " + res);
     }
 
-    errorexception.printStackTrace();
-    errorexception.printStackTrace(System.out);
-    return Error;
-  }
-
-  /**
-   * Delete a record from the database.
-   *
-   * @param table
-   *          The name of the table
-   * @param key
-   *          The record key of the record to delete.
-   * @return Zero on success, a non-zero error code on error
-   */
-  public int delete(String table, String key)
-  {
-    Exception errorexception = null;
-
-    try
-    {
-      client.set_keyspace(table);
-    } catch (Exception e)
-    {
-      e.printStackTrace();
-      e.printStackTrace(System.out);
-      return Error;
-    }
-
-    for (int i = 0; i < OperationRetries; i++)
-    {
-      try
-      {
-        if (use_counters)
-        {
-          client.remove_counter(tob(key), new ColumnPath(column_family), consistency_write);
-
-        } else
-        {
-          client.remove(tob(key), new ColumnPath(column_family), System.currentTimeMillis(),
-            consistency_write);
-        }
-
-        if (_debug)
-        {
-          System.out.println("DELETE");
-        }
-
-        return Ok;
-      } catch (Exception e)
-      {
-        errorexception = e;
-      }
-      try
-      {
-        Thread.sleep(500);
-      } catch (InterruptedException e)
-      {
-      }
-    }
-    errorexception.printStackTrace();
-    errorexception.printStackTrace(System.out);
-    return Error;
-  }
-
-  public static void main(String[] args)
-  {
-    CassandraClient8 cli = new CassandraClient8();
-
-    Properties props = new Properties();
-
-    props.setProperty("hosts", args[0]);
-    cli.setProperties(props);
-
-    try
-    {
-      cli.init();
-    } catch (Exception e)
-    {
-      e.printStackTrace();
-      System.exit(0);
-    }
-
-    HashMap<String, String> vals = new HashMap<String, String>();
-    vals.put("age", "57");
-    vals.put("middlename", "bradley");
-    vals.put("favoritecolor", "blue");
-    int res = cli.insert("usertable", "BrianFrankCooper", vals);
-    System.out.println("Result of insert: " + res);
-
-    HashMap<String, String> result = new HashMap<String, String>();
-    HashSet<String> fields = new HashSet<String>();
-    fields.add("middlename");
-    fields.add("age");
-    fields.add("favoritecolor");
-    res = cli.read("usertable", "BrianFrankCooper", null, result);
-    System.out.println("Result of read: " + res);
-    for (String s : result.keySet())
-    {
-      System.out.println("[" + s + "]=[" + result.get(s) + "]");
-    }
-
-    res = cli.delete("usertable", "BrianFrankCooper");
-    System.out.println("Result of delete: " + res);
-  }
-
-  /*
-   * public static void main(String[] args) throws TException,
-   * InvalidRequestException, UnavailableException,
-   * UnsupportedEncodingException, NotFoundException {
-   *
-   *
-   *
-   * String key_user_id = "1";
-   *
-   *
-   *
-   *
-   * client.insert("Keyspace1", key_user_id, new ColumnPath("Standard1", null,
-   * "age".getBytes("UTF-8")), "24".getBytes("UTF-8"), timestamp,
-   * ConsistencyLevel.ONE);
-   *
-   *
-   * // read single column ColumnPath path = new ColumnPath("Standard1", null,
-   * "name".getBytes("UTF-8"));
-   *
-   * System.out.println(client.get("Keyspace1", key_user_id, path,
-   * ConsistencyLevel.ONE));
-   *
-   *
-   * // read entire row SlicePredicate predicate = new SlicePredicate(null, new
-   * SliceRange(new byte[0], new byte[0], false, 10));
-   *
-   * ColumnParent parent = new ColumnParent("Standard1", null);
-   *
-   * List<ColumnOrSuperColumn> results = client.get_slice("Keyspace1",
-   * key_user_id, parent, predicate, ConsistencyLevel.ONE);
-   *
-   * for (ColumnOrSuperColumn result : results) {
-   *
-   * Column column = result.column;
-   *
-   * System.out.println(new String(column.name, "UTF-8") + " -> " + new
-   * String(column.value, "UTF-8"));
-   *
-   * }
-   *
-   *
-   *
-   *
-   * }
-   */
+    /*
+    * public static void main(String[] args) throws TException,
+    * InvalidRequestException, UnavailableException,
+    * UnsupportedEncodingException, NotFoundException {
+    *
+    *
+    *
+    * String key_user_id = "1";
+    *
+    *
+    *
+    *
+    * client.insert("Keyspace1", key_user_id, new ColumnPath("Standard1", null,
+    * "age".getBytes("UTF-8")), "24".getBytes("UTF-8"), timestamp,
+    * ConsistencyLevel.ONE);
+    *
+    *
+    * // read single column ColumnPath path = new ColumnPath("Standard1", null,
+    * "name".getBytes("UTF-8"));
+    *
+    * System.out.println(client.get("Keyspace1", key_user_id, path,
+    * ConsistencyLevel.ONE));
+    *
+    *
+    * // read entire row SlicePredicate predicate = new SlicePredicate(null, new
+    * SliceRange(new byte[0], new byte[0], false, 10));
+    *
+    * ColumnParent parent = new ColumnParent("Standard1", null);
+    *
+    * List<ColumnOrSuperColumn> results = client.get_slice("Keyspace1",
+    * key_user_id, parent, predicate, ConsistencyLevel.ONE);
+    *
+    * for (ColumnOrSuperColumn result : results) {
+    *
+    * Column column = result.column;
+    *
+    * System.out.println(new String(column.name, "UTF-8") + " -> " + new
+    * String(column.value, "UTF-8"));
+    *
+    * }
+    *
+    *
+    *
+    *
+    * }
+    */
 }
