@@ -507,7 +507,7 @@ public class CassandraClient8 extends DB
             for (String field : values.keySet()) {
                 ByteBuffer value;
                 if (timeseries)
-                    value = ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L).byteValue());
+                    value = ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L));
                 else
                     value = tob(field);
 
