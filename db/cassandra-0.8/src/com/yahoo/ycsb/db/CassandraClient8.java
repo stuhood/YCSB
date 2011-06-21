@@ -32,6 +32,7 @@ import java.util.HashSet;
 import java.util.Vector;
 import java.util.Random;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.cassandra.utils.ByteBufferUtil;
 import org.apache.thrift.transport.TTransport;
@@ -50,6 +51,8 @@ public class CassandraClient8 extends DB {
     static Random random = new Random();
     public static final int Ok = 0;
     public static final int Error = -1;
+
+    private static final AtomicLong MONOTONIC = new AtomicLong(0);
 
     public int ConnectionRetries;
     public int OperationRetries;
@@ -227,8 +230,9 @@ public class CassandraClient8 extends DB {
 
                     SliceRange sliceRange = new SliceRange();
                     if (timeseries) {
-                        sliceRange.setStart(ByteBufferUtil.bytes(new Long((System.currentTimeMillis() / 1000L) - 60)));
-                        sliceRange.setFinish(ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L)));
+                        long end = MONOTONIC.get();
+                        sliceRange.setStart(ByteBufferUtil.bytes(end - 60));
+                        sliceRange.setFinish(ByteBufferUtil.bytes(end));
                     } else {
                         sliceRange.setStart(new byte[0]);
                         sliceRange.setFinish(new byte[0]);
@@ -429,7 +433,7 @@ public class CassandraClient8 extends DB {
                     for (String field : values.keySet()) {
                         ByteBuffer value;
                         if (timeseries)
-                            value = ByteBufferUtil.bytes(new Long(System.currentTimeMillis() / 1000L));
+                            value = ByteBufferUtil.bytes(MONOTONIC.incrementAndGet());
                         else
                             value = tob(field);
 
