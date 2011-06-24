@@ -230,15 +230,17 @@ public class CassandraClient8 extends DB {
 
                     SliceRange sliceRange = new SliceRange();
                     if (timeseries) {
-                        long end = MONOTONIC.get();
-                        sliceRange.setStart(ByteBufferUtil.bytes(end - 60));
-                        sliceRange.setFinish(ByteBufferUtil.bytes(end));
+                        // assume writes are in progress, and by the time the read
+                        // is performed, there will be content there
+                        long start = MONOTONIC.get();
+                        sliceRange.setStart(ByteBufferUtil.bytes(start));
+                        sliceRange.setFinish(ByteBufferUtil.bytes(start + 1000));
                     } else {
                         sliceRange.setStart(new byte[0]);
                         sliceRange.setFinish(new byte[0]);
                     }
 
-                    sliceRange.setCount(1000000);
+                    sliceRange.setCount(1000);
 
                     predicate = new SlicePredicate();
                     predicate.setSlice_range(sliceRange);
@@ -431,13 +433,17 @@ public class CassandraClient8 extends DB {
                     batch_mutation.put(tob(key), cfMutationMap);
 
                     for (String field : values.keySet()) {
-                        ByteBuffer value;
-                        if (timeseries)
-                            value = ByteBufferUtil.bytes(MONOTONIC.incrementAndGet());
-                        else
-                            value = tob(field);
+                        ByteBuffer name;
+                        long val;
+                        if (timeseries) {
+                            val = MONOTONIC.incrementAndGet();
+                            name = ByteBufferUtil.bytes(val);
+                        } else {
+                            name = tob(field);
+                            val = 1;
+                        }
 
-                        CounterColumn col = new CounterColumn(value, 1);
+                        CounterColumn col = new CounterColumn(name, val);
 
                         ColumnOrSuperColumn colorsc = new ColumnOrSuperColumn();
                         colorsc.setCounter_column(col);
