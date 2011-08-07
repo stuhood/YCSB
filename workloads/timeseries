@@ -26,6 +26,10 @@ recordcount=10000
 operationcount=250000000
 workload=com.yahoo.ycsb.workloads.CoreWorkload
 
+cassandra.timeseries=true
+# 10 x recordcount: should average to 10 columns fetched per read
+cassandra.timeseries.read.width=100000
+
 readallfields=true
 
 readproportion=0.01

@@ -2,5 +2,4 @@ threadcount=50
 table=Keyspace1
 cassandra.columnfamily=Counter1
 cassandra.counters=true
-cassandra.timeseries=true
 cassandra.operationretries=10

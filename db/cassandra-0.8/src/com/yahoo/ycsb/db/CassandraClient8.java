@@ -61,6 +61,7 @@ public class CassandraClient8 extends DB {
     public ConsistencyLevel consistency_write;
     public boolean use_counters = false;
     public boolean timeseries = false;
+    public int timeseries_read_width = 10;
 
     public static final String CONNECTION_RETRY_PROPERTY = "cassandra.connectionretries";
     public static final String CONNECTION_RETRY_PROPERTY_DEFAULT = "300";
@@ -79,6 +80,9 @@ public class CassandraClient8 extends DB {
 
     public static final String TIMESERIES_PROPERTY = "cassandra.timeseries";
     public static final String TIMESERIES_PROPERTY_DEFAULT = "false";
+
+    public static final String TIMESERIES_READ_WIDTH_PROPERTY = "cassandra.timeseries.read.width";
+    public static final String TIMESERIES_READ_WIDTH_PROPERTY_DEFAULT = "10";
 
     public static final String CONSISTENCY_READ_PROPERTY = "cassandra.consistency_read";
     public static final String CONSISTENCY_READ_PROPERTY_DEFAULT = "1"; // ONE
@@ -105,6 +109,7 @@ public class CassandraClient8 extends DB {
         consistency_write = ConsistencyLevel.findByValue(Integer.parseInt(getProperties().getProperty(CONSISTENCY_WRITE_PROPERTY, CONSISTENCY_WRITE_PROPERTY_DEFAULT)));
         use_counters = Boolean.parseBoolean(getProperties().getProperty(COUNTERS_PROPERTY, COUNTERS_PROPERTY_DEFAULT));
         timeseries = Boolean.parseBoolean(getProperties().getProperty(TIMESERIES_PROPERTY, TIMESERIES_PROPERTY_DEFAULT));
+        timeseries_read_width = Integer.parseInt(getProperties().getProperty(TIMESERIES_READ_WIDTH_PROPERTY, TIMESERIES_READ_WIDTH_PROPERTY_DEFAULT));
 
         ConnectionRetries = Integer.parseInt(getProperties().getProperty(CONNECTION_RETRY_PROPERTY,
                 CONNECTION_RETRY_PROPERTY_DEFAULT));
@@ -230,11 +235,10 @@ public class CassandraClient8 extends DB {
 
                     SliceRange sliceRange = new SliceRange();
                     if (timeseries) {
-                        // assume writes are in progress, and by the time the read
-                        // is performed, there will be content there
-                        long start = MONOTONIC.get();
-                        sliceRange.setStart(ByteBufferUtil.bytes(start));
-                        sliceRange.setFinish(ByteBufferUtil.bytes(start + 1000));
+                        // read back from the last appended value by the read width
+                        long last = MONOTONIC.get();
+                        sliceRange.setStart(ByteBufferUtil.bytes(last - timeseries_read_width));
+                        sliceRange.setFinish(ByteBufferUtil.bytes(last));
                     } else {
                         sliceRange.setStart(new byte[0]);
                         sliceRange.setFinish(new byte[0]);
